@@ -83,6 +83,29 @@ describe('CLI', () => {
       expect(content).toContain('Fabrikam');
     });
 
+    it('should create _files.json with sample metadata', () => {
+      execSync(`npx tsx ${CLI_PATH} init ${TEST_DIR}`, { encoding: 'utf-8' });
+
+      const filesJsonPath = path.join(TEST_DIR, 'contoso/main/Documents/_files.json');
+      expect(fs.existsSync(filesJsonPath)).toBe(true);
+
+      const content = JSON.parse(fs.readFileSync(filesJsonPath, 'utf-8'));
+      expect(content['Welcome.txt']).toBeDefined();
+      expect(content['Welcome.txt'].createdBy).toBeDefined();
+      expect(content['Welcome.txt'].createdBy.displayName).toBeDefined();
+    });
+
+    it('should create _library.json with columns', () => {
+      execSync(`npx tsx ${CLI_PATH} init ${TEST_DIR}`, { encoding: 'utf-8' });
+
+      const libraryJsonPath = path.join(TEST_DIR, 'contoso/main/Documents/_library.json');
+      expect(fs.existsSync(libraryJsonPath)).toBe(true);
+
+      const content = JSON.parse(fs.readFileSync(libraryJsonPath, 'utf-8'));
+      expect(content.columns).toBeDefined();
+      expect(content.columns.length).toBeGreaterThan(0);
+    });
+
     it('should create mock-sp.config.json', () => {
       execSync(`npx tsx ${CLI_PATH} init ${TEST_DIR}`, { encoding: 'utf-8' });
 

@@ -84,7 +84,7 @@ function initCommand(directory: string): void {
     console.log(`Created: ${site.path}/_site.json`);
   }
 
-  // Create _library.json metadata files
+  // Create _library.json metadata files with columns
   const libraryMetadata = [
     {
       path: 'contoso/main/Documents',
@@ -92,7 +92,14 @@ function initCommand(directory: string): void {
         id: '00000000-0000-0000-0000-000000000010',
         name: 'Documents',
         description: 'Main document library',
-        template: 'documentLibrary'
+        template: 'documentLibrary',
+        displayName: 'Documents',
+        columns: [
+          { name: 'Department', type: 'choice', choices: ['Sales', 'Marketing', 'Engineering', 'HR'] },
+          { name: 'Status', type: 'choice', choices: ['Draft', 'Review', 'Final', 'Archived'] },
+          { name: 'DueDate', type: 'dateTime' },
+          { name: 'Confidential', type: 'boolean' }
+        ]
       }
     },
     {
@@ -101,7 +108,12 @@ function initCommand(directory: string): void {
         id: '00000000-0000-0000-0000-000000000011',
         name: 'Shared Documents',
         description: 'Shared document library',
-        template: 'documentLibrary'
+        template: 'documentLibrary',
+        displayName: 'Shared Documents',
+        columns: [
+          { name: 'Category', type: 'text' },
+          { name: 'Priority', type: 'choice', choices: ['Low', 'Medium', 'High'] }
+        ]
       }
     },
     {
@@ -110,7 +122,12 @@ function initCommand(directory: string): void {
         id: '00000000-0000-0000-0000-000000000012',
         name: 'Assets',
         description: 'Marketing assets',
-        template: 'documentLibrary'
+        template: 'documentLibrary',
+        displayName: 'Marketing Assets',
+        columns: [
+          { name: 'Campaign', type: 'text' },
+          { name: 'AssetType', type: 'choice', choices: ['Image', 'Video', 'Document', 'Template'] }
+        ]
       }
     },
     {
@@ -119,7 +136,9 @@ function initCommand(directory: string): void {
         id: '00000000-0000-0000-0000-000000000013',
         name: 'Documents',
         description: 'Root document library',
-        template: 'documentLibrary'
+        template: 'documentLibrary',
+        displayName: 'Documents',
+        columns: []
       }
     }
   ];
@@ -151,6 +170,26 @@ Or configure the server by editing mock-sp.config.json
   const welcomePath = path.join(baseDir, 'contoso/main/Documents/Welcome.txt');
   fs.writeFileSync(welcomePath, welcomeContent);
   console.log('Created: contoso/main/Documents/Welcome.txt');
+
+  // Create _files.json metadata for sample files
+  const filesMetadata = {
+    path: 'contoso/main/Documents',
+    content: {
+      'Welcome.txt': {
+        createdBy: { displayName: 'System Admin', email: 'admin@contoso.com' },
+        lastModifiedBy: { displayName: 'System Admin', email: 'admin@contoso.com' },
+        fields: {
+          Department: 'Engineering',
+          Status: 'Final',
+          Confidential: false
+        }
+      }
+    }
+  };
+
+  const filesMetaPath = path.join(baseDir, filesMetadata.path, '_files.json');
+  fs.writeFileSync(filesMetaPath, JSON.stringify(filesMetadata.content, null, 2));
+  console.log(`Created: ${filesMetadata.path}/_files.json`);
 
   // Create mock-sp.config.json
   const configData = {
