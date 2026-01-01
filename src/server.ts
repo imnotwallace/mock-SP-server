@@ -2,9 +2,11 @@ import express, { Express, Request, Response } from 'express';
 import { Server } from 'http';
 import { MockConfig } from './config/index.js';
 import { Database, createDatabase } from './services/database.js';
+import { FilesystemService } from './services/filesystem.js';
 import { odataMiddleware } from './middleware/odata.js';
 import { errorHandler, notFoundHandler } from './middleware/error.js';
 import { createSitesRouter } from './routes/sites.js';
+import { createListsRouter } from './routes/lists.js';
 
 /**
  * Mock SharePoint Server instance
@@ -21,6 +23,7 @@ export interface MockServer {
  */
 export interface ServerContext {
   db: Database;
+  fsService: FilesystemService;
 }
 
 /**
@@ -30,6 +33,7 @@ export function createMockServer(config: MockConfig): MockServer {
   const app = express();
   let server: Server | null = null;
   let db: Database | null = null;
+  let fsService: FilesystemService | null = null;
 
   // Middleware
   app.use(express.json());
@@ -67,11 +71,15 @@ export function createMockServer(config: MockConfig): MockServer {
       // Initialize database
       db = createDatabase(config.database);
 
-      // Create server context
-      const ctx: ServerContext = { db };
+      // Initialize filesystem service
+      fsService = new FilesystemService(config.root, db);
 
-      // Register routes (after db is initialized)
+      // Create server context
+      const ctx: ServerContext = { db, fsService };
+
+      // Register routes (after db and fsService are initialized)
       app.use('/v1.0/sites', createSitesRouter(ctx));
+      app.use('/v1.0/sites/:siteId/lists', createListsRouter(ctx));
 
       // 404 handler for unmatched routes
       app.use(notFoundHandler);
@@ -107,6 +115,11 @@ export function createMockServer(config: MockConfig): MockServer {
       if (db) {
         db.close();
         db = null;
+      }
+
+      // Clear filesystem service
+      if (fsService) {
+        fsService = null;
       }
 
       // Close HTTP server
