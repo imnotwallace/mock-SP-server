@@ -7,6 +7,7 @@ import { odataMiddleware } from './middleware/odata.js';
 import { errorHandler, notFoundHandler } from './middleware/error.js';
 import { createSitesRouter } from './routes/sites.js';
 import { createListsRouter } from './routes/lists.js';
+import { createDrivesRouter, createDriveItemsRouter } from './routes/drives.js';
 
 /**
  * Mock SharePoint Server instance
@@ -38,6 +39,8 @@ export function createMockServer(config: MockConfig): MockServer {
   // Middleware
   app.use(express.json());
   app.use(express.urlencoded({ extended: true }));
+  app.use(express.text());
+  app.use(express.raw());
 
   // Logging middleware (if not in 'error' mode)
   if (config.logging !== 'error') {
@@ -80,6 +83,8 @@ export function createMockServer(config: MockConfig): MockServer {
       // Register routes (after db and fsService are initialized)
       app.use('/v1.0/sites', createSitesRouter(ctx));
       app.use('/v1.0/sites/:siteId/lists', createListsRouter(ctx));
+      app.use('/v1.0/sites/:siteId/drives', createDrivesRouter(ctx));
+      app.use('/v1.0/drives', createDriveItemsRouter(ctx));
 
       // 404 handler for unmatched routes
       app.use(notFoundHandler);
