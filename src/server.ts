@@ -2,8 +2,9 @@ import express, { Express, Request, Response } from 'express';
 import { Server } from 'http';
 import { MockConfig } from './config/index.js';
 import { Database, createDatabase } from './services/database.js';
-import { odataMiddleware, formatODataResponse } from './middleware/odata.js';
+import { odataMiddleware } from './middleware/odata.js';
 import { errorHandler, notFoundHandler } from './middleware/error.js';
+import { createSitesRouter } from './routes/sites.js';
 
 /**
  * Mock SharePoint Server instance
@@ -13,6 +14,13 @@ export interface MockServer {
   start(): Promise<void>;
   stop(): Promise<void>;
   getPort(): number;
+}
+
+/**
+ * Server context passed to route handlers
+ */
+export interface ServerContext {
+  db: Database;
 }
 
 /**
@@ -51,26 +59,6 @@ export function createMockServer(config: MockConfig): MockServer {
     });
   });
 
-  // Placeholder /v1.0/sites endpoint
-  app.get('/v1.0/sites', async (req: Request, res: Response) => {
-    try {
-      // For now, return empty array - will be implemented in later tasks
-      const response = formatODataResponse(
-        [],
-        'https://graph.microsoft.com/v1.0/$metadata#sites'
-      );
-      res.json(response);
-    } catch (error) {
-      throw error;
-    }
-  });
-
-  // 404 handler for unmatched routes
-  app.use(notFoundHandler);
-
-  // Error handler (must be last)
-  app.use(errorHandler);
-
   // Server lifecycle methods
   const mockServer: MockServer = {
     app,
@@ -78,6 +66,18 @@ export function createMockServer(config: MockConfig): MockServer {
     async start(): Promise<void> {
       // Initialize database
       db = createDatabase(config.database);
+
+      // Create server context
+      const ctx: ServerContext = { db };
+
+      // Register routes (after db is initialized)
+      app.use('/v1.0/sites', createSitesRouter(ctx));
+
+      // 404 handler for unmatched routes
+      app.use(notFoundHandler);
+
+      // Error handler (must be last)
+      app.use(errorHandler);
 
       // Start HTTP server
       return new Promise((resolve, reject) => {
