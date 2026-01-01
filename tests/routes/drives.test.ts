@@ -9,7 +9,6 @@ describe('Drives Routes', () => {
   const testDir = './test-tmp-drives';
   let server: MockServer;
   let db: Database;
-  let fsService: FilesystemService;
 
   beforeAll(async () => {
     fs.mkdirSync(testDir, { recursive: true });
@@ -177,5 +176,103 @@ describe('Drives Routes', () => {
     // Verify item was deleted
     const getResponse = await fetch('http://localhost:5098/v1.0/drives/drive-1/items/file-1');
     expect(getResponse.status).toBe(404);
+  });
+});
+
+describe('Drives Routes - Enhanced Metadata', () => {
+  const testDir = './test-tmp-drives-meta';
+  let server: MockServer;
+  let db: Database;
+  let fsService: FilesystemService;
+  const PORT = 5099;
+
+  beforeAll(async () => {
+    // Clean up from any previous run
+    fs.rmSync(testDir, { recursive: true, force: true });
+    fs.mkdirSync(testDir, { recursive: true });
+
+    // Create directory structure that fsService will scan
+    const dataDir = path.join(testDir, 'data/contoso/main/Documents');
+    fs.mkdirSync(dataDir, { recursive: true });
+
+    // Create _site.json for site collection
+    fs.writeFileSync(
+      path.join(testDir, 'data/contoso/_site.json'),
+      JSON.stringify({ displayName: 'Contoso' })
+    );
+
+    // Create test file
+    fs.writeFileSync(path.join(dataDir, 'test.txt'), 'Hello World');
+
+    // Create _files.json with metadata
+    fs.writeFileSync(
+      path.join(dataDir, '_files.json'),
+      JSON.stringify({
+        'test.txt': {
+          fields: { Department: 'Sales', Priority: 'High' }
+        }
+      })
+    );
+
+    // Initialize database and filesystem service
+    db = createDatabase(path.join(testDir, 'test.db'));
+    fsService = new FilesystemService(path.join(testDir, 'data'), db);
+
+    // Scan to populate database
+    fsService.scan();
+
+    // Keep db open for the server
+    db.close();
+
+    // Start server
+    server = createMockServer({
+      port: PORT,
+      root: path.join(testDir, 'data'),
+      auth: { mode: 'none' },
+      database: path.join(testDir, 'test.db'),
+      logging: 'error'
+    });
+    await server.start();
+
+    // Re-open db for test assertions
+    db = createDatabase(path.join(testDir, 'test.db'));
+  });
+
+  afterAll(async () => {
+    await server.stop();
+    db.close();
+    fs.rmSync(testDir, { recursive: true, force: true });
+  });
+
+  it('returns enhanced file metadata with file object', async () => {
+    // Get a file's ID from db
+    const files = db.getItemsByType('file');
+    expect(files.length).toBeGreaterThan(0);
+    const fileId = files[0].id;
+    const driveId = files[0].parentId;
+
+    const response = await fetch(`http://localhost:${PORT}/v1.0/drives/${driveId}/items/${fileId}`);
+    expect(response.status).toBe(200);
+
+    const data = await response.json();
+    expect(data.file).toBeDefined();
+    expect(data.file.mimeType).toBe('text/plain');
+    expect(data.createdDateTime).toBeDefined();
+    expect(data.lastModifiedDateTime).toBeDefined();
+  });
+
+  it('returns fields when $expand=fields is used', async () => {
+    const files = db.getItemsByType('file');
+    expect(files.length).toBeGreaterThan(0);
+    const fileId = files[0].id;
+    const driveId = files[0].parentId;
+
+    const response = await fetch(`http://localhost:${PORT}/v1.0/drives/${driveId}/items/${fileId}?$expand=fields`);
+    expect(response.status).toBe(200);
+
+    const data = await response.json();
+    expect(data.fields).toBeDefined();
+    expect(data.fields.Department).toBe('Sales');
+    expect(data.fields.Priority).toBe('High');
   });
 });

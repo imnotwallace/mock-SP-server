@@ -2,6 +2,110 @@ import { Router, Request, Response, NextFunction } from 'express';
 import { formatODataResponse, applySelect, applyPagination, ODataQuery } from '../middleware/odata.js';
 import { GraphError } from '../middleware/error.js';
 import { ServerContext } from '../server.js';
+import { getMimeType } from '../utils/index.js';
+import { EnhancedDriveItem } from '../types/index.js';
+
+/**
+ * Build enhanced drive item with Graph API fields
+ */
+function buildEnhancedItem(
+  item: any,
+  db: any,
+  serverHost: string,
+  expand?: string[]
+): EnhancedDriveItem {
+  const enhanced: EnhancedDriveItem = {
+    id: item.id,
+    name: item.name,
+    createdDateTime: item.createdAt,
+    lastModifiedDateTime: item.modifiedAt,
+  };
+
+  if (item.size !== undefined) {
+    enhanced.size = item.size;
+  }
+
+  // Add file object for files
+  if (item.type === 'file') {
+    enhanced.file = {
+      mimeType: getMimeType(item.name)
+    };
+    enhanced.webUrl = `${serverHost}/${item.path}`;
+  }
+
+  // Add folder object for folders
+  if (item.type === 'folder') {
+    const children = db.getItemsByParent(item.id);
+    enhanced.folder = { childCount: children.length };
+  }
+
+  // Get field values from database
+  const fieldValues = db.getFieldValues(item.id);
+
+  // Build createdBy if available
+  const createdByName = fieldValues.find((f: any) => f.fieldName === 'createdBy.displayName');
+  const createdByEmail = fieldValues.find((f: any) => f.fieldName === 'createdBy.email');
+  if (createdByName || createdByEmail) {
+    enhanced.createdBy = {
+      user: {
+        displayName: createdByName?.fieldValue,
+        email: createdByEmail?.fieldValue
+      }
+    };
+  }
+
+  // Build lastModifiedBy if available
+  const modifiedByName = fieldValues.find((f: any) => f.fieldName === 'lastModifiedBy.displayName');
+  const modifiedByEmail = fieldValues.find((f: any) => f.fieldName === 'lastModifiedBy.email');
+  if (modifiedByName || modifiedByEmail) {
+    enhanced.lastModifiedBy = {
+      user: {
+        displayName: modifiedByName?.fieldValue,
+        email: modifiedByEmail?.fieldValue
+      }
+    };
+  }
+
+  // Add parentReference
+  if (item.parentId) {
+    const parent = db.getItemById(item.parentId);
+    if (parent) {
+      let driveId = item.parentId;
+      let current = parent;
+      while (current && current.type !== 'library') {
+        driveId = current.parentId;
+        current = current.parentId ? db.getItemById(current.parentId) : null;
+      }
+
+      enhanced.parentReference = {
+        driveId: driveId || item.parentId,
+        driveType: 'documentLibrary',
+        id: item.parentId,
+        path: `/drives/${driveId}/root:/${item.path.split('/').slice(-2, -1).join('/')}`
+      };
+    }
+  }
+
+  // Add fields if $expand=fields
+  if (expand?.includes('fields')) {
+    const fields: Record<string, any> = {};
+    for (const fv of fieldValues) {
+      if (fv.fieldName.startsWith('fields.')) {
+        const fieldName = fv.fieldName.slice(7);
+        try {
+          fields[fieldName] = JSON.parse(fv.fieldValue);
+        } catch {
+          fields[fieldName] = fv.fieldValue;
+        }
+      }
+    }
+    if (Object.keys(fields).length > 0) {
+      enhanced.fields = fields;
+    }
+  }
+
+  return enhanced;
+}
 
 /**
  * Create router for /v1.0/sites/:siteId/drives endpoints
@@ -72,20 +176,19 @@ export function createDriveItemsRouter(ctx: ServerContext): Router {
     const { driveId } = req.params;
     const odata = (req as any).odata as ODataQuery;
 
-    // Verify drive exists
     const drive = db.getItemById(driveId);
     if (!drive || drive.type !== 'library') {
       return next(GraphError.notFound(`Drive with ID '${driveId}' not found`));
     }
 
-    // Get children of the drive (root level items)
     let children = db.getItemsByParent(driveId);
-
-    // Apply pagination
     children = applyPagination(children, odata.$top, odata.$skip);
 
-    // Apply select
-    let value = children.map(item => applySelect(item, odata.$select));
+    const serverHost = `${req.protocol}://${req.get('host')}`;
+    let value = children.map(item => {
+      const enhanced = buildEnhancedItem(item, db, serverHost, odata.$expand);
+      return applySelect(enhanced, odata.$select);
+    });
 
     const response = formatODataResponse(
       value,
@@ -98,6 +201,7 @@ export function createDriveItemsRouter(ctx: ServerContext): Router {
   // GET /v1.0/drives/:driveId/items/:itemId - Get item by ID
   router.get('/:driveId/items/:itemId', (req: Request, res: Response, next: NextFunction) => {
     const { driveId, itemId } = req.params;
+    const odata = (req as any).odata as ODataQuery;
 
     // Verify drive exists
     const drive = db.getItemById(driveId);
@@ -111,7 +215,11 @@ export function createDriveItemsRouter(ctx: ServerContext): Router {
       return next(GraphError.notFound(`Item with ID '${itemId}' not found`));
     }
 
-    res.json(item);
+    // Build enhanced response
+    const serverHost = `${req.protocol}://${req.get('host')}`;
+    const enhanced = buildEnhancedItem(item, db, serverHost, odata.$expand);
+
+    res.json(enhanced);
   });
 
   // GET /v1.0/drives/:driveId/items/:itemId/children - Get folder contents
