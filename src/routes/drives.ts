@@ -223,7 +223,7 @@ export function createDriveItemsRouter(ctx: ServerContext): Router {
 
       res.json(updatedItem);
     } catch (error) {
-      return next(GraphError.internalError(`Failed to upload file: ${error}`));
+      return next(GraphError.internal(`Failed to upload file: ${error}`));
     }
   });
 

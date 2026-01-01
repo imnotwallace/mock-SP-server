@@ -19,11 +19,16 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/imnotwallace/mock-SP-server.git"
+    "url": "https://github.com/imnotwallace/mock-SP-server.git"
   },
-  "keywords": [],
+  "keywords": [
+    "sharepoint",
+    "mock",
+    "testing",
+    "microsoft-graph"
+  ],
   "author": "",
-  "license": "ISC",
+  "license": "MIT",
   "bugs": {
     "url": "https://github.com/imnotwallace/mock-SP-server/issues"
   },
