@@ -91,7 +91,7 @@ export function createDatabase(dbPath: string): Database {
     VALUES (?, ?, ?)
     ON CONFLICT(item_id, field_name) DO UPDATE SET field_value = excluded.field_value
   `);
-  const getFieldsStmt = db.prepare('SELECT * FROM field_values WHERE item_id = ?');
+  const getFieldsStmt = db.prepare('SELECT item_id as itemId, field_name as fieldName, field_value as fieldValue FROM field_values WHERE item_id = ?');
 
   const mapRow = (row: any): ItemRecord | undefined => {
     if (!row) return undefined;

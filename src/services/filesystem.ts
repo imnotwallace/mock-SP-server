@@ -2,16 +2,12 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { Database, ItemRecord } from './database.js';
 import { pathToId } from '../utils/index.js';
-
-interface SiteMetadata {
-  displayName?: string;
-  description?: string;
-}
-
-interface LibraryMetadata {
-  displayName?: string;
-  description?: string;
-}
+import {
+  SiteMetadata,
+  LibraryMetadata,
+  FilesMetadataMap,
+  FileMetadata
+} from '../types/index.js';
 
 export class FilesystemService {
   private rootDir: string;
@@ -91,6 +87,12 @@ export class FilesystemService {
         };
 
         this.db.upsertItem(item);
+
+        // Apply file metadata if available
+        const filesMetadata = this.loadFilesMetadata(dirPath);
+        if (filesMetadata[entry.name]) {
+          this.applyFileMetadata(id, filesMetadata[entry.name]);
+        }
       }
     }
   }
@@ -140,8 +142,57 @@ export class FilesystemService {
         if (metadata.description) {
           this.db.setFieldValue(libraryId, 'description', metadata.description);
         }
+        if (metadata.columns) {
+          this.db.setFieldValue(libraryId, 'columns', JSON.stringify(metadata.columns));
+        }
       } catch (error) {
         // Silently ignore malformed metadata files
+      }
+    }
+  }
+
+  private loadFilesMetadata(folderPath: string): FilesMetadataMap {
+    const metadataPath = path.join(folderPath, '_files.json');
+    if (fs.existsSync(metadataPath)) {
+      try {
+        const content = fs.readFileSync(metadataPath, 'utf-8');
+        return JSON.parse(content);
+      } catch (error) {
+        // Silently ignore malformed metadata files
+      }
+    }
+    return {};
+  }
+
+  private applyFileMetadata(fileId: string, metadata: FileMetadata): void {
+    if (metadata.createdBy) {
+      if (metadata.createdBy.displayName) {
+        this.db.setFieldValue(fileId, 'createdBy.displayName', metadata.createdBy.displayName);
+      }
+      if (metadata.createdBy.email) {
+        this.db.setFieldValue(fileId, 'createdBy.email', metadata.createdBy.email);
+      }
+      if (metadata.createdBy.id) {
+        this.db.setFieldValue(fileId, 'createdBy.id', metadata.createdBy.id);
+      }
+    }
+
+    if (metadata.lastModifiedBy) {
+      if (metadata.lastModifiedBy.displayName) {
+        this.db.setFieldValue(fileId, 'lastModifiedBy.displayName', metadata.lastModifiedBy.displayName);
+      }
+      if (metadata.lastModifiedBy.email) {
+        this.db.setFieldValue(fileId, 'lastModifiedBy.email', metadata.lastModifiedBy.email);
+      }
+      if (metadata.lastModifiedBy.id) {
+        this.db.setFieldValue(fileId, 'lastModifiedBy.id', metadata.lastModifiedBy.id);
+      }
+    }
+
+    if (metadata.fields) {
+      for (const [fieldName, fieldValue] of Object.entries(metadata.fields)) {
+        const valueStr = typeof fieldValue === 'string' ? fieldValue : JSON.stringify(fieldValue);
+        this.db.setFieldValue(fileId, `fields.${fieldName}`, valueStr);
       }
     }
   }
