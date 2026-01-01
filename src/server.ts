@@ -4,10 +4,12 @@ import { MockConfig } from './config/index.js';
 import { Database, createDatabase } from './services/database.js';
 import { FilesystemService } from './services/filesystem.js';
 import { odataMiddleware } from './middleware/odata.js';
+import { createAuthMiddleware } from './middleware/auth.js';
 import { errorHandler, notFoundHandler } from './middleware/error.js';
 import { createSitesRouter } from './routes/sites.js';
 import { createListsRouter } from './routes/lists.js';
 import { createDrivesRouter, createDriveItemsRouter } from './routes/drives.js';
+import { createAuthRouter } from './routes/auth.js';
 
 /**
  * Mock SharePoint Server instance
@@ -57,6 +59,9 @@ export function createMockServer(config: MockConfig): MockServer {
   // OData middleware
   app.use(odataMiddleware);
 
+  // Authentication middleware (after OData parsing)
+  app.use(createAuthMiddleware(config.auth));
+
   // Health check endpoint
   app.get('/health', (req: Request, res: Response) => {
     res.json({
@@ -79,6 +84,9 @@ export function createMockServer(config: MockConfig): MockServer {
 
       // Create server context
       const ctx: ServerContext = { db, fsService };
+
+      // OAuth routes (before API routes)
+      app.use('/oauth', createAuthRouter());
 
       // Register routes (after db and fsService are initialized)
       app.use('/v1.0/sites', createSitesRouter(ctx));
