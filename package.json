@@ -1,7 +1,7 @@
 {
   "name": "mock-sp-server",
   "version": "1.0.0",
-  "description": "",
+  "description": "A local Node.js server that mimics Microsoft Graph SharePoint endpoints for testing and development",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
