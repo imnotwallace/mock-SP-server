@@ -59,6 +59,13 @@ export class GraphError extends Error {
   }
 
   /**
+   * Create a 409 Conflict error
+   */
+  static conflict(message: string = 'Conflict'): GraphError {
+    return new GraphError(409, 'nameAlreadyExists', message);
+  }
+
+  /**
    * Create a 500 Internal Server Error
    */
   static internal(message: string = 'Internal server error'): GraphError {

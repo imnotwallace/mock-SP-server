@@ -61,6 +61,20 @@ const SCHEMA = `
   CREATE INDEX IF NOT EXISTS idx_items_parent ON items(parent_id);
   CREATE INDEX IF NOT EXISTS idx_items_type ON items(type);
   CREATE INDEX IF NOT EXISTS idx_items_path ON items(path);
+  CREATE TABLE IF NOT EXISTS thumbnails (
+    id TEXT PRIMARY KEY,
+    item_id TEXT NOT NULL,
+    size TEXT NOT NULL,
+    width INTEGER NOT NULL,
+    height INTEGER NOT NULL,
+    path TEXT NOT NULL,
+    mime_type TEXT NOT NULL,
+    generated_at TEXT NOT NULL,
+    UNIQUE(item_id, size),
+    FOREIGN KEY (item_id) REFERENCES items(id) ON DELETE CASCADE
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_thumbnails_item ON thumbnails(item_id);
 `;
 
 export function createDatabase(dbPath: string): Database {

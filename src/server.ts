@@ -10,6 +10,11 @@ import { createSitesRouter } from './routes/sites.js';
 import { createListsRouter } from './routes/lists.js';
 import { createDrivesRouter, createDriveItemsRouter } from './routes/drives.js';
 import { createAuthRouter } from './routes/auth.js';
+import { createSearchRouter } from './routes/search.js';
+import { createUploadRouter } from './routes/upload.js';
+import { createBatchRouter } from './routes/batch.js';
+import { createSubscriptionsRouter } from './routes/subscriptions.js';
+import { SubscriptionService } from './services/subscriptions.js';
 
 /**
  * Mock SharePoint Server instance
@@ -37,9 +42,16 @@ export function createMockServer(config: MockConfig): MockServer {
   let server: Server | null = null;
   let db: Database | null = null;
   let fsService: FilesystemService | null = null;
+  let subscriptionService: SubscriptionService | null = null;
+  let notificationWorkerInterval: NodeJS.Timeout | null = null;
 
-  // Middleware
-  app.use(express.json());
+  // Middleware - skip JSON parsing for /upload routes
+  app.use((req, res, next) => {
+    if (req.path.startsWith('/upload/sessions')) {
+      return next();
+    }
+    express.json()(req, res, next);
+  });
   app.use(express.urlencoded({ extended: true }));
   app.use(express.text());
   app.use(express.raw());
@@ -82,6 +94,9 @@ export function createMockServer(config: MockConfig): MockServer {
       // Initialize filesystem service
       fsService = new FilesystemService(config.root, db);
 
+      // Initialize subscription service
+      subscriptionService = new SubscriptionService(db.raw);
+
       // Create server context
       const ctx: ServerContext = { db, fsService };
 
@@ -93,12 +108,43 @@ export function createMockServer(config: MockConfig): MockServer {
       app.use('/v1.0/sites/:siteId/lists', createListsRouter(ctx));
       app.use('/v1.0/sites/:siteId/drives', createDrivesRouter(ctx));
       app.use('/v1.0/drives', createDriveItemsRouter(ctx));
+      app.use('/v1.0/search', createSearchRouter(ctx));
+      app.use('/upload', createUploadRouter(ctx));
+      app.use('/v1.0/subscriptions', createSubscriptionsRouter(subscriptionService));
+
+      // Batch endpoint (must be after other routes so it can route internally)
+      app.use('/v1.0/$batch', createBatchRouter(app));
+      app.use('/$batch', createBatchRouter(app)); // Also support without version
 
       // 404 handler for unmatched routes
       app.use(notFoundHandler);
 
       // Error handler (must be last)
       app.use(errorHandler);
+
+      // Start notification delivery worker
+      notificationWorkerInterval = setInterval(async () => {
+        try {
+          const delivered = await subscriptionService!.deliverPendingNotifications();
+          if (delivered > 0 && config.logging !== 'error') {
+            console.log(`Delivered ${delivered} notifications`);
+          }
+        } catch (error) {
+          console.error('Notification delivery error:', error);
+        }
+      }, 5000);
+
+      // Start cleanup worker
+      setInterval(() => {
+        try {
+          const cleaned = subscriptionService!.cleanupExpiredSubscriptions();
+          if (cleaned > 0 && config.logging !== 'error') {
+            console.log(`Cleaned up ${cleaned} expired subscriptions`);
+          }
+        } catch (error) {
+          console.error('Subscription cleanup error:', error);
+        }
+      }, 60 * 60 * 1000);
 
       // Start HTTP server
       return new Promise((resolve, reject) => {
@@ -124,6 +170,17 @@ export function createMockServer(config: MockConfig): MockServer {
     },
 
     async stop(): Promise<void> {
+      // Stop notification worker
+      if (notificationWorkerInterval) {
+        clearInterval(notificationWorkerInterval);
+        notificationWorkerInterval = null;
+      }
+
+      // Clear subscription service
+      if (subscriptionService) {
+        subscriptionService = null;
+      }
+
       // Close database connection
       if (db) {
         db.close();

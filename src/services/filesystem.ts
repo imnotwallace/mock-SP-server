@@ -37,8 +37,8 @@ export class FilesystemService {
     const entries = fs.readdirSync(dirPath, { withFileTypes: true });
 
     for (const entry of entries) {
-      // Skip metadata files
-      if (entry.name.startsWith('_')) {
+      // Skip metadata files and version directories
+      if (entry.name.startsWith('_') || entry.name === '.versions') {
         continue;
       }
 
@@ -198,6 +198,13 @@ export class FilesystemService {
   }
 
   /**
+   * Gets the root directory path
+   */
+  getRootDir(): string {
+    return this.rootDir;
+  }
+
+  /**
    * Gets the absolute filesystem path for a relative path
    */
   getAbsolutePath(relativePath: string): string {
@@ -243,6 +250,31 @@ export class FilesystemService {
     if (fs.existsSync(absPath)) {
       fs.unlinkSync(absPath);
     }
+  }
+
+  /**
+   * Moves a file or folder from one path to another
+   */
+  moveFile(oldRelativePath: string, newRelativePath: string): void {
+    const oldAbsPath = this.getAbsolutePath(oldRelativePath);
+    const newAbsPath = this.getAbsolutePath(newRelativePath);
+
+    // Ensure target directory exists
+    const targetDir = path.dirname(newAbsPath);
+    if (!fs.existsSync(targetDir)) {
+      fs.mkdirSync(targetDir, { recursive: true });
+    }
+
+    // Move file/folder
+    fs.renameSync(oldAbsPath, newAbsPath);
+  }
+
+  /**
+   * Creates a directory
+   */
+  createDirectory(relativePath: string): void {
+    const absPath = this.getAbsolutePath(relativePath);
+    fs.mkdirSync(absPath, { recursive: true });
   }
 
   /**

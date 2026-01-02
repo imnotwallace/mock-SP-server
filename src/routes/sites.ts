@@ -1,7 +1,8 @@
 import { Router, Request, Response, NextFunction } from 'express';
-import { formatODataResponse, applySelect, applyPagination, ODataQuery } from '../middleware/odata.js';
+import { formatODataResponse, formatPaginatedResponse, applySelect, applyPagination, ODataQuery } from '../middleware/odata.js';
 import { GraphError } from '../middleware/error.js';
 import { ServerContext } from '../server.js';
+import { applyFilter } from '../utils/index.js';
 
 /**
  * Create router for /v1.0/sites endpoints
@@ -15,15 +16,25 @@ export function createSitesRouter(ctx: ServerContext): Router {
     const odata = (req as any).odata as ODataQuery;
     let siteCollections = db.getItemsByType('siteCollection');
 
+    // Apply $filter if provided
+    if (odata.$filter) {
+      siteCollections = applyFilter(siteCollections, odata.$filter);
+    }
+
+    // Get total count for pagination
+    const totalCount = siteCollections.length;
+
     // Apply pagination
     siteCollections = applyPagination(siteCollections, odata.$top, odata.$skip);
 
     // Apply select
     let value = siteCollections.map(sc => applySelect(sc, odata.$select));
 
-    const response = formatODataResponse(
+    const response = formatPaginatedResponse(
       value,
-      'https://graph.microsoft.com/v1.0/$metadata#sites'
+      totalCount,
+      req,
+      odata
     );
 
     res.json(response);
@@ -55,15 +66,25 @@ export function createSitesRouter(ctx: ServerContext): Router {
     // Get all child items and filter by type='site'
     let subsites = db.getItemsByParent(siteId).filter(item => item.type === 'site');
 
+    // Apply $filter if provided
+    if (odata.$filter) {
+      subsites = applyFilter(subsites, odata.$filter);
+    }
+
+    // Get total count for pagination
+    const totalCount = subsites.length;
+
     // Apply pagination
     subsites = applyPagination(subsites, odata.$top, odata.$skip);
 
     // Apply select
     let value = subsites.map(site => applySelect(site, odata.$select));
 
-    const response = formatODataResponse(
+    const response = formatPaginatedResponse(
       value,
-      'https://graph.microsoft.com/v1.0/$metadata#sites'
+      totalCount,
+      req,
+      odata
     );
 
     res.json(response);

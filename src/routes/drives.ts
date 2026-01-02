@@ -8,6 +8,7 @@ import { EnhancedDriveItem } from '../types/index.js';
 /**
  * Build enhanced drive item with Graph API fields
  */
+import { ThumbnailService } from '../services/thumbnails.js';
 function buildEnhancedItem(
   item: any,
   db: any,
@@ -172,7 +173,7 @@ export function createDriveItemsRouter(ctx: ServerContext): Router {
   const { db, fsService } = ctx;
 
   // GET /v1.0/drives/:driveId/root/children - List root folder contents
-  router.get('/:driveId/root/children', (req: Request, res: Response, next: NextFunction) => {
+  router.get('/:driveId/root/children', async (req: Request, res: Response, next: NextFunction) => {
     const { driveId } = req.params;
     const odata = (req as any).odata as ODataQuery;
 
@@ -189,6 +190,13 @@ export function createDriveItemsRouter(ctx: ServerContext): Router {
       const enhanced = buildEnhancedItem(item, db, serverHost, odata.$expand);
       return applySelect(enhanced, odata.$select);
     });
+    // Expand thumbnails if requested
+    if (odata.$expand?.includes('thumbnails')) {
+      const thumbnailService = new ThumbnailService(db, fsService.getRootDir());
+      const baseUrl = `${serverHost}/v1.0/drives/${driveId}/items`;
+      value = await thumbnailService.expandThumbnails(value, baseUrl);
+    }
+
 
     const response = formatODataResponse(
       value,
@@ -223,7 +231,7 @@ export function createDriveItemsRouter(ctx: ServerContext): Router {
   });
 
   // GET /v1.0/drives/:driveId/items/:itemId/children - Get folder contents
-  router.get('/:driveId/items/:itemId/children', (req: Request, res: Response, next: NextFunction) => {
+  router.get('/:driveId/items/:itemId/children', async (req: Request, res: Response, next: NextFunction) => {
     const { driveId, itemId } = req.params;
     const odata = (req as any).odata as ODataQuery;
 
@@ -247,6 +255,14 @@ export function createDriveItemsRouter(ctx: ServerContext): Router {
 
     // Apply select
     let value = children.map(item => applySelect(item, odata.$select));
+    // Expand thumbnails if requested
+    if (odata.$expand?.includes('thumbnails')) {
+      const serverHost = `${req.protocol}://${req.get('host')}`;
+      const thumbnailService = new ThumbnailService(db, fsService.getRootDir());
+      const baseUrl = `${serverHost}/v1.0/drives/${driveId}/items`;
+      value = await thumbnailService.expandThumbnails(value, baseUrl);
+    }
+
 
     const response = formatODataResponse(
       value,
@@ -288,7 +304,7 @@ export function createDriveItemsRouter(ctx: ServerContext): Router {
   });
 
   // PUT /v1.0/drives/:driveId/items/:itemId/content - Upload file
-  router.put('/:driveId/items/:itemId/content', (req: Request, res: Response, next: NextFunction) => {
+  router.put('/:driveId/items/:itemId/content', async (req: Request, res: Response, next: NextFunction) => {
     const { driveId, itemId } = req.params;
 
     // Verify drive exists
@@ -328,6 +344,9 @@ export function createDriveItemsRouter(ctx: ServerContext): Router {
         size: content.length
       };
       db.upsertItem(updatedItem);
+      // Invalidate thumbnails
+      const thumbnailService = new ThumbnailService(db, fsService.getRootDir());
+      await thumbnailService.invalidateThumbnails(itemId);
 
       res.json(updatedItem);
     } catch (error) {
@@ -336,7 +355,7 @@ export function createDriveItemsRouter(ctx: ServerContext): Router {
   });
 
   // DELETE /v1.0/drives/:driveId/items/:itemId - Delete item
-  router.delete('/:driveId/items/:itemId', (req: Request, res: Response, next: NextFunction) => {
+  router.delete('/:driveId/items/:itemId', async (req: Request, res: Response, next: NextFunction) => {
     const { driveId, itemId } = req.params;
 
     // Verify drive exists
@@ -362,9 +381,80 @@ export function createDriveItemsRouter(ctx: ServerContext): Router {
 
     // Delete from database
     db.deleteItem(itemId);
+    // Invalidate thumbnails
+    const thumbnailService = new ThumbnailService(db, fsService.getRootDir());
+    await thumbnailService.invalidateThumbnails(itemId);
 
     res.status(204).send();
   });
 
+
+  // Thumbnail Routes
+
+  // GET /v1.0/drives/:driveId/items/:itemId/thumbnails
+  router.get('/:driveId/items/:itemId/thumbnails', async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { itemId } = req.params;
+
+      const item = db.getItemById(itemId);
+      if (!item) {
+        return next(GraphError.notFound('Item not found'));
+      }
+
+      const serverHost = `${req.protocol}://${req.get('host')}`;
+      const thumbnailService = new ThumbnailService(db, fsService.getRootDir());
+      const baseUrl = `${serverHost}/v1.0/drives/${req.params.driveId}/items/${itemId}`;
+      const thumbnails = await thumbnailService.getThumbnails(itemId, baseUrl);
+
+      res.json({
+        '@odata.context': `${serverHost}/v1.0/$metadata#thumbnails`,
+        value: thumbnails
+      });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  // GET /v1.0/drives/:driveId/items/:itemId/thumbnails/:thumbnailId/:size
+  router.get('/:driveId/items/:itemId/thumbnails/:thumbnailId/:size', async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { itemId, size } = req.params;
+
+      const item = db.getItemById(itemId);
+      if (!item) {
+        return next(GraphError.notFound('Item not found'));
+      }
+
+      const thumbnailService = new ThumbnailService(db, fsService.getRootDir());
+      const result = await thumbnailService.getThumbnailContent(itemId, size);
+
+      res.setHeader('Content-Type', result.mimeType);
+      res.setHeader('Cache-Control', 'public, max-age=3600');
+      res.send(result.content);
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  // GET /v1.0/drives/:driveId/items/:itemId/thumbnails/:thumbnailId/:size/content
+  router.get('/:driveId/items/:itemId/thumbnails/:thumbnailId/:size/content', async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { itemId, size } = req.params;
+
+      const item = db.getItemById(itemId);
+      if (!item) {
+        return next(GraphError.notFound('Item not found'));
+      }
+
+      const thumbnailService = new ThumbnailService(db, fsService.getRootDir());
+      const result = await thumbnailService.getThumbnailContent(itemId, size);
+
+      res.setHeader('Content-Type', result.mimeType);
+      res.setHeader('Cache-Control', 'public, max-age=3600');
+      res.send(result.content);
+    } catch (error) {
+      next(error);
+    }
+  });
   return router;
 }

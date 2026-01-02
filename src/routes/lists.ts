@@ -1,8 +1,8 @@
 import { Router, Request, Response, NextFunction } from 'express';
-import { formatODataResponse, applySelect, applyPagination, ODataQuery } from '../middleware/odata.js';
+import { formatODataResponse, formatPaginatedResponse, applySelect, applyPagination, ODataQuery } from '../middleware/odata.js';
 import { GraphError } from '../middleware/error.js';
 import { ServerContext } from '../server.js';
-import { generateId } from '../utils/index.js';
+import { generateId, applyFilter } from '../utils/index.js';
 
 /**
  * Create router for /v1.0/sites/:siteId/lists endpoints
@@ -27,15 +27,25 @@ export function createListsRouter(ctx: ServerContext): Router {
       item => item.type === 'list' || item.type === 'library'
     );
 
+    // Apply $filter if provided
+    if (odata.$filter) {
+      lists = applyFilter(lists, odata.$filter);
+    }
+
+    // Get total count for pagination
+    const totalCount = lists.length;
+
     // Apply pagination
     lists = applyPagination(lists, odata.$top, odata.$skip);
 
     // Apply select
     let value = lists.map(list => applySelect(list, odata.$select));
 
-    const response = formatODataResponse(
+    const response = formatPaginatedResponse(
       value,
-      'https://graph.microsoft.com/v1.0/$metadata#lists'
+      totalCount,
+      req,
+      odata
     );
 
     res.json(response);
@@ -87,15 +97,25 @@ export function createListsRouter(ctx: ServerContext): Router {
       items = fsService.loadListItems(list.path);
     }
 
+    // Apply $filter if provided
+    if (odata.$filter) {
+      items = applyFilter(items, odata.$filter);
+    }
+
+    // Get total count for pagination
+    const totalCount = items.length;
+
     // Apply pagination
     items = applyPagination(items, odata.$top, odata.$skip);
 
     // Apply select
     let value = items.map(item => applySelect(item, odata.$select));
 
-    const response = formatODataResponse(
+    const response = formatPaginatedResponse(
       value,
-      'https://graph.microsoft.com/v1.0/$metadata#listItems'
+      totalCount,
+      req,
+      odata
     );
 
     res.json(response);
